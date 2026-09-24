@@ -1,0 +1,10 @@
+"0","<button id=""copyBtn"">Copy Code</button>
+
+<script>
+  document.getElementById('copyBtn').addEventListener('click', () => {
+    navigator.clipboard.writeText('Hello World!');
+  });
+</script>
+"
+"2","/bin/sh: html: command not found
+"

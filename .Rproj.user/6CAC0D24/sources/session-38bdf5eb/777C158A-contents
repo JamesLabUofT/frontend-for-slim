@@ -1,0 +1,86 @@
+---
+title: "frontend-for-slim"
+execute:
+  echo: false
+---
+```{ojs}
+
+viewof kmax = Inputs.radio([200, 500, 1000], {label: "Carrying capacity", value: 500})
+
+viewof minDem = Inputs.range([1, 20], {label: "Bottleneck Strength", step: 1, value: 4})
+
+viewof Kadjust = Inputs.radio(new Map([["5 years", 0.8], ["20 years", 3.2], ["40 years", 6.4]]), {label: "Kadjust", value: 0.8})
+
+viewof N0 = Inputs.range([1,20], {label: "initial population size (proportion of carrying capacity)", step: 1, value: 2})
+
+viewof numLoci = Inputs.range([100,2000], {label: "Number of loci loci", step: 100, value: 1000})
+
+viewof MU = Inputs.radio(["1e-6", "1e-7", "1e-6"], {value: "1e-7", label: "Mutation rate"})
+
+viewof prek = Inputs.range([1, 256], {label: "Length of complete cycle", value : 14, step: 1})
+```
+
+<details>
+<summary> **Advanced parameters**</summary>
+
+
+
+```{ojs}
+viewof nGen = Inputs.number([0, Infinity], {step: 1, label: "Simulation horizon", placeholder: 300, value: 300})
+
+viewof burnin = Inputs.range([1,10], {step: 1, value: 1, label: "burnin generations"})
+
+viewof r = Inputs.range([0,10], {step: 0.01, value: 1.4, label: "r variable for the top-down cycle regulation"})
+
+
+```
+
+</details>
+
+```{ojs}
+
+
+"minPop = " 
+kmax/minDem
+
+"Initial population size"
+kmax/N0
+
+command = `slim -d Kmax ${kmax} -d minDem ${minDem} -d Kadjust ${Kadjust} -d N0 ${N0} -d numLoci ${numLoci} -d MU ${MU} -d prek ${prek} -d ngen ${nGen} -d burnin ${burnin} -d r ${r}`
+
+command
+```
+
+```{ojs}
+url = 
+
+viewof copyButton = {
+  const btn = html`<button class="btn btn-outline-primary">📋 Copy Command</button>`;
+  
+  btn.onclick = () => {
+    navigator.clipboard.writeText(command)
+      .then(() => {
+        // Temporary feedback on successful copy
+        const originalText = btn.innerHTML;
+        btn.innerHTML = "✅ Copied!";
+        setTimeout(() => btn.innerHTML = originalText, 1500);
+      })
+      .catch(err => console.error("Clipboard copy failed:", err));
+  };
+  
+  return btn;
+}
+
+downloadButton = html`<button">Download SLiM file</button>`;
+  
+button.onclick = () => {
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "my_dataset.csv";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+  
+```
+

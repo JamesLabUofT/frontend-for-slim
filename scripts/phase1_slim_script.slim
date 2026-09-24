@@ -1,0 +1,274 @@
+// Phase1 - FOR JACOB
+	// THIS VERSION IS ADAPTED FROM phase1_cluster241120_k1000tests.slim
+	// This code has been cleaned up. Check 240510_DEBUG_BURNIN and 240504 for comments and previous versions of the code
+// This model is used to test genetic inferences of different cyclic outbreaks under different demographic patterns
+// Here, we will have:
+	// 1 population
+	// 5 gen burnin -> mock HWE
+	// 6 sampling efforts per full outbreak cycle
+	// Max simulation horizon of 300 gen, but stops at 200
+// Variables are:
+	// Kmax (200, 500, 1000)
+	// minPop (1/2, 1/4, 1/10)
+	// Kadjust[period] (0.8, 3.2, 6.4) 5, 20, 40 years
+
+// FOR JACOB -- VARIABLE REFERENCE
+	// in the block initialize() is where we create variables with defineGlobal() or defineConstant()
+	// these will be passed by the front-end to the script. Each variable has to be COMMENTED OUT in the script so it can be passed by the command line. If the variable is not commented, there will be an error kind of "this variable already exists"
+	// Passing a variable on command line requires a flag -d followed by the name: e.g. -d Kmax 200 (this will set a variable Kmax = 200)
+	
+	// Below, I will make a list of variables that we could/should have as frontend inputs and variables that depend on them. Will add a simple description too
+
+
+initialize() 
+{	
+	initializeSLiMModelType("nonWF"); 
+	initializeSLiMOptions(keepPedigrees = T);
+	initializeSex("A");
+	
+	// VARIABLES THAT ARE INPUTS
+	
+	defineGlobal("np", 1); // number of subpopulations. This model has just 1 (ideally we will have a single script that can acommodate 1-3 populations)
+	defineConstant("Kmax", 200);	// carrying capacity, how big the subpopulation can grow to (number of individuals)
+	defineGlobal("minDem", 4); // "bottleneck strength", how small a population can get during contraction. It is in relation to Kmax: if minDem = 4, minPop = 0.25 of Kmax (kmax/4)
+	defineGlobal("N0", Kmax/2); // Pop initil size, in relation to Kmax: if 2, 50% of Kmax (Kmax/2)
+	defineGlobal("numLoci", 1000); // number of loci. This model simulates independed loci. Careful with this one, too much will demand too many computational resources because of creating the independence between them (a strong recombination point is forced between each loci, exponentially increases calculations)
+	defineGlobal("MU", 1e-7); // Mutation rate
+	defineGlobal("nGen", 300); // A simulation horizon that is larger than the end of the simulation. Used to calculate the top-down density regulation. This could be a fixed variable.
+	defineGlobal("preK", 14); // A variable that is used to calculate the length of a complete cycle. It is an input to many variables below. As the model is, 16 is about 10 ticks (10 generations, 10 years) cycle length (32 would be 20, 64 would be 40, etc).
+	defineGlobal("sampfr", asInteger(round((lambda/4)))); // sampling frequence. The number of samples of the genome and stats we want in relation to cycle length (lambda). Using 4 here means that sampling is performed 4 times in a full cycle.
+	defineGlobal("burnin", 1); // burnin generations that the model runs "as panmictic"- approximates to HWE. Mathematically, 1 gen would be enough. 1-10 is what I usually use.
+	defineGlobal("r", 1.4); // r variable for the top-down cycle regulation. My sugegstion would be to leave this as fixed and allow for modification for "advanced users"
+	defineGlobal("litSz", 10); // Reproduction output, used as the mean point for a draw from a poisson distribution. Can be modified to match reproductive outputs from study system
+	
+	// VARIABLES THAT DEPEND ON THE ABOVE OR ARE SET
+	
+	defineGlobal("minPop", Kmax/minDem);
+	defineGlobal("n_t", Dictionary());
+	defineGlobal("kAdjust", preK/10); // dividing by 10 so it fits the equation
+	defineGlobal("kDynA", (sin(c(1:(2*nGen)/kAdjust)))*(Kmax/2));
+	defineGlobal("kDynB", (kDynA+abs(min(kDynA))));
+	defineGlobal("kDyn", kDynB[0:nGen]);
+	defineGlobal("lambda", round((2*PI*kAdjust))); 
+	defineGlobal("start", clock()); // clock for counting generations in the model
+	defineGlobal("dyn_burn", 0); // dynamic burning: if 0, godlike, always at N0. If 1, fluctuates around N0.
+	defineGlobal("kDyn_key", 0); // 0 is the first position of the vector kDyn[0]	
+	defineGlobal("logclock", 0); // to log accordingly with sampfr, defined by kAdjust	
+	
+	defineGlobal("directory", paste0("/home/fontene3/SLiM_github/241120_k1000tests/outputs/Kmax",Kmax,"_minDem",minDem,"_preK",preK,"/rep",rep)); // directory variable so the model knows where to output results. Will vary depending on the test variables that I used. THIS WILL probably be modified for more efficiency.
+	defineGlobal("idtag", paste0("k",Kmax,"m",minDem,"a",preK)); // Tag id to use in outputs
+	defineConstant("STOPPER", asInteger(25*sampfr));	// this CONSTANT stops simulation. I have used it to stop after 25 genomic samples (compare to the nGen, should be shorter). Depends on sampfr (which depends on lambda, which depends on preK)
+
+// Below is the model code
+	
+	mts = NULL;
+	for (i in seqLen(numLoci))
+		{
+		mts = c(mts, initializeMutationType(i,0.5,"f",0.0));	
+		}
+	for (m in mts)
+		{
+		m.convertToSubstitution = F;
+		}
+		
+	initializeGenomicElementType("g1", mts, c(rep(1.0,numLoci)));		
+	initializeGenomicElement(g1, 0, ((numLoci-1)*2));
+	
+	initializeMutationRate(MU);
+	
+	tmpA = c(rep(c(0,0.5),numLoci-1), 0);
+	tmpB = seq(0, size(tmpA)-1);
+	initializeRecombinationRate(tmpA, tmpB);
+	
+	initializeInteractionType(1, "",reciprocal=F, sexSegregation = "FM");
+}
+
+// each individual reproduces itself once
+reproduction() 
+{
+for (b in sim.subpopulations)
+	{
+	females = b.subsetIndividuals(sex="F");
+
+	for (heatF in females)
+		{
+		if (heatF.tag <0)
+			{
+			// if not mated, choose a mate
+			mate = b.sampleIndividuals(1, sex="M"); // Age?
+			}
+		else
+			{
+			// already mated, look it up by id
+			mate = sim.individualsWithPedigreeIDs(heatF.tag);
+			}
+			// now if mate match is made, reproduce
+		if (mate.size())
+			{
+			heatF.tag = mate.pedigreeID; // here, if fem has not mated yet, will get the mate tag
+			b.addCrossed(heatF, mate, count=rpois(1,litSz)).tag = -1;
+			}
+		}
+	}	
+self.active = 0;
+}
+
+
+// create an initial population of 10 individuals
+1 early() {
+	for (p in 1:np)
+	{
+	sim.addSubpop(p, asInteger(N0));
+	}
+	
+// ADDING MUTS IN THE RIGHT PLACE
+	for (b in sim.subpopulations)
+	{
+	gens = b.individuals.genomes;
+	count = b.individualCount;
+	vet = seq(0, numLoci*2-1, 2);
+		
+	for (i in 1:numLoci-1)
+		{
+		ged = sample(gens, rbinom(1, 2*count, 0.5));
+		ged.addNewDrawnMutation(sim.mutationTypes[i], vet[i]);
+		}
+	}	
+
+	for (b in sim.subpopulations)
+	{
+	b.individuals.tag = -1;
+	///////////////////////////////////////////////////////////////////////////////////////////////
+	// Creating log files
+	// using as described in 4.2.5 -> community
+	log = community.createLogFile(paste0(directory,"/p",b.id,"_",idtag,"_log.csv"));
+	log.addCycle();
+	log.addSubpopulationSize(b);
+	log.addCustomColumn("eHz", "calcHeterozygosity(p1.genomes);");
+	log.addCustomColumn("WattThe", "calcWattersonsTheta(p1.genomes);");
+	log.addCustomColumn("Ne_Het", "estimateNe_Heterozygosity(p1);");
+	log.addCustomColumn("TajimaD", "calcTajimasD(p1.genomes);");
+	log.addCustomColumn("PiDiversity", "calcPi(p1.genomes);");
+//	log.logRow();	
+	}
+
+//for (i in (1:nGen)-1) // from first (0) to last (499) to match 1:500
+//{
+//if (kDyn[i] - kDyn[i+1] > 0)
+//	{
+//	catn("1st peak at tick " + i + ", kDyn = " + kDyn[i]);
+//	catn("cycle period is " + lambda);
+//	defineGlobal("fPeak", i);
+//	catn("starting at "+ fPeak+ ", sampling every "+sampfr);
+//	break;
+//	}
+//} // APPARENTLY NO NEED FOR fPeak IN CODE AS IS
+
+
+
+}
+//////////////////////
+1:early()
+{
+
+// BURNIN STAGGER -> WHEN IN BURNIN, POP VARY AROUND WHAT WE WANT INIT POP TO BE => N0
+
+if (sim.cycle <= burnin)
+	{
+	if (dyn_burn == 1)
+		{	
+		inds = p1.individuals;
+		inds[inds.age > 0].fitnessScaling = 0.0;
+		n_t_plus_pt5 = sum(inds.age == 0);
+		p1.fitnessScaling = N0/n_t_plus_pt5;
+		}
+	if (dyn_burn == 0)
+		{
+		togo = sample(p1.individuals, asInteger(p1.individualCount - N0));
+		sim.killIndividuals(togo);
+		}
+	}
+if (sim.cycle > burnin)
+	{
+	oldies = p1.subsetIndividuals(minAge=1);
+	sim.killIndividuals(oldies);
+	ind_no = p1.individualCount;
+
+	doomlist = ind_no - round(max(minPop, kDyn[kDyn_key]));
+	if (doomlist > 0)
+		{
+		doomchild = sample(p1.individuals, asInteger(doomlist));
+		sim.killIndividuals(doomchild);
+		}
+	defineGlobal("kDyn_key", kDyn_key + 1);	
+			
+	}
+}
+
+
+////////////////////
+1:late()
+{
+for (b in sim.subpopulations)
+	{
+	n_t.setValue(b.id, c(n_t.getValue(b.id), b.individualCount));
+	}
+
+if (sim.cycle <= burnin) // before and including burnin
+	{
+	for (l in community.logFiles)
+			{
+			l.logRow();
+			}
+		if (sim.cycle == burnin)
+			{
+		
+			for (b in sim.subpopulations)
+				{
+				p1.genomes.outputVCF(paste0(directory,"/VCF_p"+b.id+"_"+idtag+"_g"+sim.cycle+".vcf"), outputMultiallelics = F);
+				}
+			defineGlobal("logclock", logclock+1);	
+			}
+	}
+if (sim.cycle > burnin)
+	{		
+	if (logclock == sampfr)
+		{
+		for (l in community.logFiles)
+			{
+			l.logRow();
+			}
+		for (b in sim.subpopulations)
+			{
+			p1.genomes.outputVCF(paste0(directory,"/VCF_p"+b.id+"_"+idtag+"_g"+sim.cycle+".vcf"), outputMultiallelics = F);
+			}
+		defineGlobal("logclock", 0);
+		}
+	if (logclock < sampfr)
+		{
+		defineGlobal("logclock", logclock+1);
+		}				
+	}	
+}
+
+
+//
+STOPPER late() {
+	sim.outputFull(ages=T); // end gen
+	for (b in sim.subpopulations)
+	{
+	out_vect = c(n_t.getValue(b.id));
+	writeFile(paste0(directory,"/OUTTEST",b.id,"_",idtag,".txt"), asString(out_vect), append=F);
+	}
+}
+
+
+//////////////////////////////////////////////
+// CUSTOM FUNCTIONS //
+
+// Estimate Ne based on Heterozygosity
+function (float)estimateNe_Heterozygosity(o<Subpopulation>$ subpop)
+{
+	pi = calcHeterozygosity(subpop.genomes);
+	return pi / (4 * MU);
+}
