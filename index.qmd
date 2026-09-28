@@ -85,7 +85,7 @@ viewof copyButton = {
 
 
 ```{ojs}
-rawFileURL = "https://raw.githubusercontent.com/LeofkJ/AGUPoster/refs/heads/main/index.html"
+rawFileURL = "https://raw.githubusercontent.com/JamesLabUofT/frontend-for-slim/refs/heads/main/scripts/phase1_slim_script.slim"
 response = await fetch(rawFileURL); 
 blob = await response.blob();
 viewof downloadSlimScript = {
