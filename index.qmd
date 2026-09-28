@@ -1,5 +1,5 @@
 ---
-title: "frontend-for-slim"
+title: "Frontend for slim"
 execute:
   echo: false
 ---
@@ -15,7 +15,7 @@ viewof N0 = Inputs.range([1,20], {label: "initial population size (proportion of
 
 viewof numLoci = Inputs.range([100,2000], {label: "Number of loci loci", step: 100, value: 1000})
 
-viewof MU = Inputs.radio(["1e-6", "1e-7", "1e-6"], {value: "1e-7", label: "Mutation rate"})
+viewof MU = Inputs.radio(["1e-8", "1e-7", "1e-6"], {value: "1e-7", label: "Mutation rate"})
 
 viewof prek = Inputs.range([1, 256], {label: "Length of complete cycle", value : 14, step: 1})
 ```
@@ -39,20 +39,29 @@ viewof r = Inputs.range([0,10], {step: 0.01, value: 1.4, label: "r variable for 
 
 ```{ojs}
 
+md`
+minPop = 
+${kmax/minDem}
 
-"minPop = " 
-kmax/minDem
+Initial population size:
+${kmax/N0}
+`
 
-"Initial population size"
-kmax/N0
+command = `slim -d Kmax ${kmax} -d minDem ${minDem} -d Kadjust ${Kadjust} -d N0 ${N0} -d numLoci ${numLoci} -d MU ${MU} -d prek ${prek} -d ngen ${nGen} -d burnin ${burnin} -d r ${r} ./slimScript.slim`
 
-command = `slim -d Kmax ${kmax} -d minDem ${minDem} -d Kadjust ${Kadjust} -d N0 ${N0} -d numLoci ${numLoci} -d MU ${MU} -d prek ${prek} -d ngen ${nGen} -d burnin ${burnin} -d r ${r}`
+md`
+Command to use:
 
-command
+*${command}*
+
+`
 ```
 
+
+
+
 ```{ojs}
-url = 
+
 
 viewof copyButton = {
   const btn = html`<button class="btn btn-outline-primary">📋 Copy Command</button>`;
@@ -70,17 +79,43 @@ viewof copyButton = {
   
   return btn;
 }
-
-downloadButton = html`<button">Download SLiM file</button>`;
-  
-button.onclick = () => {
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "my_dataset.csv";
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-};
   
 ```
 
+
+
+```{ojs}
+rawFileURL = "https://raw.githubusercontent.com/LeofkJ/AGUPoster/refs/heads/main/index.html"
+response = await fetch(rawFileURL); 
+blob = await response.blob();
+viewof downloadSlimScript = {
+  const downloadButton = html`<button class="btn btn-outline-primary" download = "slimFile">Download SLiM file</button>`;
+  downloadButton.onclick = () => {
+    
+    try {
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error while fetching slim script! Status : ${response.status}`);
+      }
+      
+      const blobUrl = URL.createObjectURL(blob);
+      
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = "slimScript.slim";
+      a.style.display = 'none';
+      
+      a.click();
+      
+      URL.revokeObjectURL(blobUrl);
+      
+      
+    } catch (error) {
+      console.error('Failed to download file:', error);
+      alert('Could not download the file.')
+    }
+  }
+  return downloadButton;
+}
+
+```
